@@ -54,7 +54,7 @@ Throughout, $k = \dfrac{1}{4\pi\varepsilon_0}$. The code sets $k = 1$, so charge
 
 ## 1. Finite wire
 
-Charge element $dq' = \lambda dz'$ at $\vec r ' = (0,0,z')$, with $-L/2 \le z' \le L/2$. For a
+Charge element $dq' = \lambda dz'$ at $\vec{r}' = (0,0,z')$, with $-L/2 \le z' \le L/2$. For a
 field point at cylindrical distance $\rho$ from the wire and height $z$, define
 $a = z + L/2$ and $b = z - L/2$. Integrating the components gives
 
