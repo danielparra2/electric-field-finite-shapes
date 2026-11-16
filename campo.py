@@ -71,6 +71,29 @@ def sample_cylinder(R: float, L: float, Q: float = 1.0,
     return pts, W.ravel()
 
 
+def sample_plate(a: float, Q: float = 1.0, n: int = 80):
+    """Uniform square plate of side a in the plane z = 0, total charge Q."""
+    x, wx = _gauss(n, -a / 2, a / 2)
+    X, Y = np.meshgrid(x, x, indexing="ij")
+    W = (Q / a**2) * wx[:, None] * wx[None, :]
+    return np.column_stack([X.ravel(), Y.ravel(), np.zeros(X.size)]), W.ravel()
+
+
+def sample_sphere(R: float, Q: float = 1.0, nr: int = 20, nth: int = 40, nphi: int = 80):
+    """Solid sphere of radius R, uniform volume density, total charge Q."""
+    r, wr = _gauss(nr, 0.0, R)
+    mu, wmu = _gauss(nth, -1.0, 1.0)            # mu = cos(theta)
+    phi = np.linspace(0, 2 * np.pi, nphi, endpoint=False)
+    dphi = 2 * np.pi / nphi
+    rho_v = Q / (4 / 3 * np.pi * R**3)
+    RR, MU, PP = np.meshgrid(r, mu, phi, indexing="ij")
+    W = rho_v * RR**2 * wr[:, None, None] * wmu[None, :, None] * dphi
+    st = np.sqrt(1 - MU**2)
+    pts = np.column_stack([(RR * st * np.cos(PP)).ravel(), (RR * st * np.sin(PP)).ravel(),
+                           (RR * MU).ravel()])
+    return pts, W.ravel()
+
+
 def field(query: np.ndarray, pts: np.ndarray, w: np.ndarray) -> np.ndarray:
     """E(r) = K * sum_i w_i (r - r_i) / |r - r_i|^3, evaluated at every query point."""
     query = np.atleast_2d(query)
@@ -119,6 +142,19 @@ def cylinder_axis_closed(z: float, R: float, L: float, Q: float = 1.0) -> float:
     return val
 
 
+def plate_axis_closed(z: np.ndarray, a: float, Q: float = 1.0) -> np.ndarray:
+    """On the axis of a square plate: E_z = 4 K sigma arctan(a^2 / (2 z sqrt(4 z^2 + 2 a^2)))."""
+    sigma = Q / a**2
+    az = np.abs(z)
+    return np.sign(z) * 4 * K * sigma * np.arctan(a**2 / (2 * az * np.sqrt(4 * az**2 + 2 * a**2)))
+
+
+def sphere_closed(P: np.ndarray, Q: float = 1.0) -> np.ndarray:
+    """Outside a uniform sphere the field is that of a point charge (Gauss's law)."""
+    r = np.linalg.norm(P, axis=1)
+    return K * Q * P / r[:, None] ** 3
+
+
 def run_checks() -> None:
     print("Numerical integration vs closed forms (relative error)")
     # Wire, off-axis point
@@ -148,6 +184,25 @@ def run_checks() -> None:
     Enum = field(np.column_stack([np.zeros_like(zc), np.zeros_like(zc), zc]), pts, w)[:, 2]
     ref = np.array([cylinder_axis_closed(zi, 1.0, 2.0) for zi in zc])
     print(f"  cylinder  max error: {np.max(np.abs(Enum - ref) / np.abs(ref)):.2e}")
+
+    # Square plate, on the axis
+    pts, w = sample_plate(a=2.0)
+    Enum = field(np.column_stack([np.zeros_like(z), np.zeros_like(z), z]), pts, w)[:, 2]
+    ref = plate_axis_closed(z, 2.0)
+    print(f"  plate     max error: {np.max(np.abs(Enum - ref) / np.abs(ref)):.2e}")
+
+    # Solid sphere, exterior points in arbitrary directions: Gauss's law is exact here
+    pts, w = sample_sphere(R=1.0)
+    P = np.array([[1.3, 0.2, -0.4], [0.0, 0.0, 1.5], [-1.1, 1.4, 0.9]])
+    ref = sphere_closed(P)
+    err = np.linalg.norm(field(P, pts, w) - ref, axis=1) / np.linalg.norm(ref, axis=1)
+    print(f"  sphere    max error: {err.max():.2e}")
+
+    # Ring, in its own plane: the field points inward for r < R and outward for r > R
+    pts, w = sample_ring(R=1.0)
+    Er = field(np.array([[0.5, 0.0, 0.0], [1.5, 0.0, 0.0]]), pts, w)[:, 0]
+    assert Er[0] < 0 < Er[1], "ring in-plane sign check failed"
+    print(f"  ring in-plane E_r: {Er[0]:+.4f} at r = 0.5 (inward), {Er[1]:+.4f} at r = 1.5 (outward)")
 
     # Long-cylinder limit: far from the ends the field approaches Gauss's law
     # for an infinite cylinder, E = K * 2 * lam_eff / rho' with lam_eff = Q / L.
@@ -251,6 +306,20 @@ def _cylinder_surface(R: float, L: float) -> list:
     return [side, _disk_surface(R, L / 2, 0.55), _disk_surface(R, -L / 2, 0.55)]
 
 
+def _plate_surface(a: float) -> go.Surface:
+    x = np.array([-a / 2, a / 2])
+    X, Y = np.meshgrid(x, x)
+    return go.Surface(x=X, y=Y, z=np.zeros_like(X), colorscale=[[0, CHARGE], [1, CHARGE]],
+                      showscale=False, opacity=0.85, hoverinfo="skip")
+
+
+def _sphere_surface(R: float) -> go.Surface:
+    th, ph = np.meshgrid(np.linspace(0, np.pi, 40), np.linspace(0, 2 * np.pi, 80))
+    return go.Surface(x=R * np.sin(th) * np.cos(ph), y=R * np.sin(th) * np.sin(ph),
+                      z=R * np.cos(th), colorscale=[[0, CHARGE], [1, CHARGE]],
+                      showscale=False, opacity=0.6, hoverinfo="skip")
+
+
 # --------------------------------------------------------------------------
 # Shapes
 # --------------------------------------------------------------------------
@@ -286,6 +355,20 @@ def make_all_figures() -> dict[str, go.Figure]:
         "Uniform disk (R = 1)",
         [_disk_surface(R, 0.0)], pts, w,
         shell_points([0.5, 1.6], np.linspace(-1.5, 1.5, 7)), box=2.0)
+
+    a = 2.0
+    pts, w = sample_plate(a)
+    figs["plate"] = build_figure(
+        "Finite square plate (a = 2)",
+        [_plate_surface(a)], pts, w,
+        shell_points([0.5, 1.7], np.linspace(-1.5, 1.5, 7)), box=2.1)
+
+    pts, w = sample_sphere(R)
+    q = shell_points([0.6, 1.7], np.linspace(-2.0, 2.0, 7))
+    q = q[np.linalg.norm(q, axis=1) > R]       # exterior points only
+    figs["sphere"] = build_figure(
+        "Uniform solid sphere (R = 1)",
+        [_sphere_surface(R)], pts, w, q, box=2.3, arrow=0.38)
 
     return figs
 

@@ -12,9 +12,11 @@
 | <img src="figures/wire.png" alt="Electric field around a finite charged wire" width="100%"> | <img src="figures/cylinder.png" alt="Electric field outside a finite charged cylinder" width="100%"> |
 | **Thin ring** | **Uniform disk** |
 | <img src="figures/ring.png" alt="Electric field around a charged ring" width="100%"> | <img src="figures/disk.png" alt="Electric field around a uniformly charged disk" width="100%"> |
+| **Finite square plate** | **Uniform solid sphere** |
+| <img src="figures/plate.png" alt="Electric field around a finite charged square plate" width="100%"> | <img src="figures/sphere.png" alt="Electric field outside a uniformly charged sphere" width="100%"> |
 
-<sub>Arrows give the direction of the field; colour gives log<sub>10</sub>|E| (lighter = stronger). All four are computed by
-direct numerical integration of Coulomb's law.</sub>
+<sub>Arrows give the direction of the field; colour gives log<sub>10</sub>|E| (lighter = stronger). All charges are positive.
+All six are computed by direct numerical integration of Coulomb's law.</sub>
 
 ---
 
@@ -32,7 +34,7 @@ $$
 \vec E(\vec r) = \frac{1}{4\pi\varepsilon_0}\int \frac{(\vec r-\vec r\,')\,dq'}{|\vec r-\vec r\,'|^{3}}
 $$
 
-This repository works through four finite shapes, in order of increasing dimension:
+This repository works through six finite shapes:
 
 | Shape | Charge | Integration |
 |---|---|---|
@@ -40,6 +42,8 @@ This repository works through four finite shapes, in order of increasing dimensi
 | Finite solid cylinder | volume density ρ, radius R, length L | 3D |
 | Thin ring | total Q, radius R | 1D |
 | Uniform disk | surface density σ, radius R | 2D |
+| Finite square plate | surface density σ, side a | 2D |
+| Uniform solid sphere | volume density ρ, radius R | 3D |
 
 For each one: the setup, the integral, a check against a closed form where one exists,
 and a limit that connects it back to the infinite case Gauss's law handles.
@@ -89,6 +93,10 @@ $$
 
 **Limit $z\to\infty$:** $E_z \to kQ/z^2$, the point-charge field.
 
+**In the plane of the ring** (positive charge) the field is radial and changes sign across the ring:
+it points **toward the centre** for $r < R$, because the nearest arc dominates, and **outward** for
+$r > R$. It vanishes at the centre and diverges on the ring itself.
+
 ## 4. Uniform disk
 
 Split the disk into thin rings of radius $r'$ and width $dr'$, each with $dq' = \sigma\, 2\pi r'\,dr'$ and
@@ -101,6 +109,37 @@ $$
 **Limits:**
 - $z\to 0^{\pm}$: $E_z \to \pm\sigma/(2\varepsilon_0)$, the infinite-sheet result from Gauss's law.
 - $|z|\gg R$: $E_z \to kQ/z^2$, the point-charge field.
+
+## 5. Finite square plate
+
+Charge element $dq' = \sigma\,dx'\,dy'$ with $\sigma = Q/a^2$ and $-a/2 \le x', y' \le a/2$. On the axis
+through the centre, the transverse components cancel and the double integral gives
+
+$$
+E_z(z) = 4k\sigma\,\arctan\left(\frac{a^2}{2z\sqrt{4z^2+2a^2}}\right), \qquad z>0.
+$$
+
+**Limits:**
+- $z\to 0^{+}$: the arctangent tends to $\pi/2$, so $E_z \to 2\pi k\sigma = \sigma/(2\varepsilon_0)$, the infinite-sheet
+  result from Gauss's law.
+- $z\gg a$: $E_z \to kQ/z^2$, the point-charge field.
+
+Away from the axis the field bends outward near the edges, which is exactly what the infinite-plane
+model misses.
+
+## 6. Uniform solid sphere
+
+Volume element $dq' = \rho_v\, r'^2 \sin\theta'\,dr'\,d\theta'\,d\varphi'$, with $\rho_v = 3Q/(4\pi R^3)$.
+
+The sphere is the exception that proves the rule: it is **finite, yet fully symmetric**, so Gauss's
+law still works. Outside the sphere,
+
+$$
+\vec E(\vec r) = \frac{kQ}{r^2}\,\hat r, \qquad r > R,
+$$
+
+exactly the field of a point charge at the centre. Here the triple integral is not needed; it is
+computed anyway and used as a test of the numerical method against Gauss's law.
 
 ---
 
@@ -126,15 +165,18 @@ Numerical integration vs closed forms (relative error)
   ring      max error: 1.70e-14
   disk      max error: 4.36e-14
   cylinder  max error: 1.64e-13
+  plate     max error: 4.03e-15
+  sphere    max error: 2.76e-13
+  ring in-plane E_r: -0.3449 at r = 0.5 (inward), +0.7019 at r = 1.5 (outward)
   wire L->inf Gauss check: 2.500000 vs 2K/rho = 2.500000
 ```
 
 ### Accuracy
 
 - Points **outside** the charge are integrated to machine precision with the default grids.
-- Points **inside** the solid cylinder converge slowly with a fixed grid. The integrand has a
-  $1/r^2$ singularity at the field point, and a fixed Gauss grid does not resolve it. The figure
-  therefore shows only exterior points for the cylinder.
+- Points **inside** a solid (cylinder, sphere) converge slowly with a fixed grid. The integrand has a
+  $1/r^2$ singularity at the field point, and a fixed Gauss grid does not resolve it. The figures
+  therefore show only exterior points for the cylinder and the sphere.
 
 ---
 
