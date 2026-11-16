@@ -7,6 +7,15 @@
 [![Plotly](https://img.shields.io/badge/Plotly-interactive-3F4F75?logo=plotly&logoColor=white)](https://plotly.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+| Finite wire | Finite solid cylinder |
+|:---:|:---:|
+| <img src="figures/wire.png" alt="Electric field around a finite charged wire" width="100%"> | <img src="figures/cylinder.png" alt="Electric field outside a finite charged cylinder" width="100%"> |
+| **Thin ring** | **Uniform disk** |
+| <img src="figures/ring.png" alt="Electric field around a charged ring" width="100%"> | <img src="figures/disk.png" alt="Electric field around a uniformly charged disk" width="100%"> |
+
+<sub>Arrows give the direction of the field; colour gives log<sub>10</sub>|E| (lighter = stronger). All four are computed by
+direct numerical integration of Coulomb's law.</sub>
+
 ---
 
 ## Motivation
@@ -138,21 +147,21 @@ pip install -r requirements.txt
 python campo.py
 ```
 
-Each shape writes an interactive 3D figure to `figures/`. Open the `.html` files in a browser:
+Each shape writes two files to `figures/`:
 
-- `figures/wire.html`
-- `figures/cylinder.html`
-- `figures/ring.html`
-- `figures/disk.html`
+- `<shape>.html`: interactive 3D figure. Open it in a browser to rotate and zoom.
+- `<shape>.png`: the static screenshot shown at the top of this page (needs `kaleido` and Chrome;
+  skipped with a message if they are missing).
 
-Arrows show the field direction. Their colour gives $\log_{10}|\vec E|$, so strong and weak regions are both visible.
+Arrows show the field direction. Their colour gives $\log_{10}|\vec E|$, so strong and weak regions are
+both visible. Arrow length is only mildly scaled with the field, to keep weak regions readable.
 
 ## Files
 
 ```
 campo.py          # quadrature, closed forms, checks and interactive figures
-figures/          # generated HTML figures
-requirements.txt  # numpy, scipy, plotly
+figures/          # generated figures (interactive HTML + PNG screenshots)
+requirements.txt  # numpy, scipy, plotly, kaleido
 LICENSE           # MIT
 ```
 

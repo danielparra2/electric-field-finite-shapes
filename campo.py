@@ -158,106 +158,134 @@ def run_checks() -> None:
 
 
 # --------------------------------------------------------------------------
-# Visualization
+# Visualization (style: "Slate Mint")
 # --------------------------------------------------------------------------
-def _grid_points(center_box: float, n: int, pts: np.ndarray, min_dist: float):
-    """Regular grid of query points, dropping those too close to the charge."""
-    axis = np.linspace(-center_box, center_box, n)
-    X, Y, Z = np.meshgrid(axis, axis, axis, indexing="ij")
-    grid = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
-    dist, _ = cKDTree(pts).query(grid)
-    return grid[dist > min_dist]
+BG = "#1b262c"
+GRID = "#3d5361"
+TEXT = "#bbe1fa"
+CHARGE = "#00ffab"
+FIELD_SCALE = [[0.0, "#2f7fb5"], [0.5, "#6fb6e6"], [1.0, "#e3f4ff"]]
 
 
-def build_figure(title: str, geometry: list, pts: np.ndarray, w: np.ndarray,
-                 box: float, scale: float, n_grid: int = 7,
-                 keep=None) -> go.Figure:
-    query = _grid_points(box, n_grid, pts, min_dist=0.25 * scale)
-    if keep is not None:
-        query = query[keep(query)]
-    E = field(query, pts, w)
+def shell_points(radii, z_levels, n_phi: int = 8, axis: bool = True) -> np.ndarray:
+    """Query points on cylindrical shells around the z axis, plus the axis itself."""
+    # half-step offset so no arrow points straight at the default camera
+    phi = np.linspace(0, 2 * np.pi, n_phi, endpoint=False) + np.pi / n_phi
+    R, P, Z = np.meshgrid(radii, phi, z_levels, indexing="ij")
+    out = np.column_stack([(R * np.cos(P)).ravel(), (R * np.sin(P)).ravel(), Z.ravel()])
+    if axis:
+        zl = np.asarray(z_levels, dtype=float)
+        out = np.vstack([out, np.column_stack([np.zeros_like(zl), np.zeros_like(zl), zl])])
+    return out
+
+
+def arrow_traces(query: np.ndarray, E: np.ndarray, length: float) -> list:
+    """Thin arrows (line shaft + small cone head), coloured by log10 |E|."""
     mag = np.linalg.norm(E, axis=1)
     unit = E / mag[:, None]
     logm = np.log10(mag)
-    lo, hi = np.percentile(logm, [5, 95])
+    lo, hi = np.percentile(logm, [3, 97])
+    t = np.clip((logm - lo) / (hi - lo), 0, 1)
+    tip = query + unit * (length * (0.6 + 0.4 * t))[:, None]
 
-    fig = go.Figure(geometry)
-    fig.add_trace(go.Cone(
-        x=query[:, 0], y=query[:, 1], z=query[:, 2],
-        u=unit[:, 0], v=unit[:, 1], w=unit[:, 2],
-        anchor="tail", sizemode="absolute", sizeref=0.22 * scale,
-        colorscale="Turbo", cmin=lo, cmax=hi,
-        colorbar=dict(title="log10 |E|"), showscale=True,
-    ))
+    nan = np.full(len(query), np.nan)
+    xs, ys, zs = (np.column_stack([query[:, i], tip[:, i], nan]).ravel() for i in range(3))
+    shaft = go.Scatter3d(
+        x=xs, y=ys, z=zs, mode="lines", showlegend=False, hoverinfo="skip",
+        line=dict(color=np.repeat(logm, 3), colorscale=FIELD_SCALE, cmin=lo, cmax=hi,
+                  width=5, showscale=True,
+                  colorbar=dict(title=dict(text="log10 |E|", font=dict(color=TEXT)),
+                                tickfont=dict(color=TEXT), len=0.6, thickness=14)))
+    # Plotly colours cones by the vector norm, so the norm (1 + t) carries the colour.
+    v = unit * (1.0 + t)[:, None]
+    heads = go.Cone(
+        x=tip[:, 0], y=tip[:, 1], z=tip[:, 2], u=v[:, 0], v=v[:, 1], w=v[:, 2],
+        anchor="tail", sizemode="scaled", sizeref=0.35, showscale=False,
+        colorscale=FIELD_SCALE, cmin=1.0, cmax=2.0, hoverinfo="skip",
+        lighting=dict(ambient=0.9, diffuse=0.3))
+    return [shaft, heads]
+
+
+def build_figure(title: str, geometry: list, pts: np.ndarray, w: np.ndarray,
+                 query: np.ndarray, box: float, min_dist: float = 0.2,
+                 arrow: float = 0.3) -> go.Figure:
+    dist, _ = cKDTree(pts).query(query)
+    query = query[dist > min_dist]
+    E = field(query, pts, w)
+    ok = np.linalg.norm(E, axis=1) > 1e-9      # drop exact zeros (e.g. ring centre)
+    fig = go.Figure(geometry + arrow_traces(query[ok], E[ok], arrow))
+    axis = dict(range=[-box, box], backgroundcolor=BG, gridcolor=GRID, zerolinecolor=GRID,
+                showticklabels=False, title="", showspikes=False)
     fig.update_layout(
-        title=title,
-        scene=dict(
-            xaxis=dict(range=[-box, box]), yaxis=dict(range=[-box, box]),
-            zaxis=dict(range=[-box, box]), aspectmode="cube",
-        ),
+        title=dict(text=title, font=dict(color=TEXT, size=20), x=0.5),
+        paper_bgcolor=BG, font=dict(color=TEXT),
+        scene=dict(xaxis=axis, yaxis=axis, zaxis=axis, aspectmode="cube",
+                   camera=dict(eye=dict(x=1.25, y=1.25, z=0.65))),
         margin=dict(l=0, r=0, t=50, b=0),
-        template="plotly_dark",
     )
     return fig
 
 
-def _line(points: np.ndarray, color: str, name: str) -> go.Scatter3d:
+def _line(points: np.ndarray) -> go.Scatter3d:
     return go.Scatter3d(x=points[:, 0], y=points[:, 1], z=points[:, 2], mode="lines",
-                        line=dict(color=color, width=6), name=name, showlegend=False)
+                        line=dict(color=CHARGE, width=12), showlegend=False,
+                        hoverinfo="skip")
 
 
-def _disk_surface(R: float, z0: float, color: str) -> go.Surface:
+def _disk_surface(R: float, z0: float, opacity: float = 0.85) -> go.Surface:
     r = np.linspace(0, R, 20)
     t = np.linspace(0, 2 * np.pi, 60)
     rr, tt = np.meshgrid(r, t)
     return go.Surface(x=rr * np.cos(tt), y=rr * np.sin(tt), z=np.full_like(rr, z0),
-                      colorscale=[[0, color], [1, color]], showscale=False, opacity=0.8)
+                      colorscale=[[0, CHARGE], [1, CHARGE]], showscale=False,
+                      opacity=opacity, hoverinfo="skip")
 
 
-def _cylinder_surface(R: float, L: float, color: str) -> list:
+def _cylinder_surface(R: float, L: float) -> list:
     t = np.linspace(0, 2 * np.pi, 60)
     z = np.linspace(-L / 2, L / 2, 2)
     tt, zz = np.meshgrid(t, z)
     side = go.Surface(x=R * np.cos(tt), y=R * np.sin(tt), z=zz,
-                      colorscale=[[0, color], [1, color]], showscale=False, opacity=0.5)
-    return [side, _disk_surface(R, L / 2, color), _disk_surface(R, -L / 2, color)]
+                      colorscale=[[0, CHARGE], [1, CHARGE]], showscale=False,
+                      opacity=0.55, hoverinfo="skip")
+    return [side, _disk_surface(R, L / 2, 0.55), _disk_surface(R, -L / 2, 0.55)]
 
 
 # --------------------------------------------------------------------------
 # Shapes
 # --------------------------------------------------------------------------
 def make_all_figures() -> dict[str, go.Figure]:
-    FIG_DIR.mkdir(exist_ok=True)
     figs = {}
 
     L = 2.0
     pts, w = sample_wire(L)
     figs["wire"] = build_figure(
-        "Finite wire, L = 2: field vectors around the segment",
-        [_line(np.column_stack([np.zeros(2), np.zeros(2), [-L / 2, L / 2]]), "#ffd166", "wire")],
-        pts, w, box=1.8, scale=L)
+        "Finite wire (L = 2)",
+        [_line(np.array([[0, 0, -L / 2], [0, 0, L / 2]]))], pts, w,
+        shell_points([0.5, 1.2], np.linspace(-1.5, 1.5, 7)), box=1.8)
 
     R, L = 1.0, 2.0
     pts, w = sample_cylinder(R, L)
+    q = shell_points([0.5, 1.6], np.linspace(-2.0, 2.0, 7))
+    # exterior points only (interior accuracy is limited, see README)
+    q = q[(np.hypot(q[:, 0], q[:, 1]) > R) | (np.abs(q[:, 2]) > L / 2)]
     figs["cylinder"] = build_figure(
-        "Finite solid cylinder, R = 1, L = 2",
-        _cylinder_surface(R, L, "#8ecae6"), pts, w, box=2.2, scale=R,
-        # keep exterior points only (interior accuracy is limited, see README)
-        keep=lambda q: (np.hypot(q[:, 0], q[:, 1]) > R) | (np.abs(q[:, 2]) > L / 2))
+        "Finite solid cylinder (R = 1, L = 2)",
+        _cylinder_surface(R, L), pts, w, q, box=2.3, arrow=0.38)
 
     R = 1.0
     pts, w = sample_ring(R)
     t = np.linspace(0, 2 * np.pi, 200)
     figs["ring"] = build_figure(
-        "Thin ring, R = 1: field on and around the ring axis",
-        [_line(np.column_stack([R * np.cos(t), R * np.sin(t), np.zeros_like(t)]), "#ef476f", "ring")],
-        pts, w, box=2.0, scale=R)
+        "Thin ring (R = 1)",
+        [_line(np.column_stack([R * np.cos(t), R * np.sin(t), np.zeros_like(t)]))], pts, w,
+        shell_points([0.45, 1.6], np.linspace(-1.5, 1.5, 7)), box=2.0)
 
-    R = 1.0
     pts, w = sample_disk(R)
     figs["disk"] = build_figure(
-        "Uniform disk, R = 1: field above and below the plane",
-        [_disk_surface(R, 0.0, "#06d6a0")], pts, w, box=2.0, scale=R)
+        "Uniform disk (R = 1)",
+        [_disk_surface(R, 0.0)], pts, w,
+        shell_points([0.5, 1.6], np.linspace(-1.5, 1.5, 7)), box=2.0)
 
     return figs
 
@@ -266,9 +294,12 @@ def main() -> None:
     run_checks()
     FIG_DIR.mkdir(exist_ok=True)
     for name, fig in make_all_figures().items():
-        out = FIG_DIR / f"{name}.html"
-        fig.write_html(out, include_plotlyjs="cdn")
-        print(f"wrote {out.relative_to(Path(__file__).parent)}")
+        fig.write_html(FIG_DIR / f"{name}.html", include_plotlyjs="cdn")
+        try:  # static screenshot for the README (needs kaleido + Chrome)
+            fig.write_image(FIG_DIR / f"{name}.png", width=900, height=760, scale=2)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  (PNG skipped for {name}: {exc})")
+        print(f"wrote figures/{name}.html")
 
 
 if __name__ == "__main__":
