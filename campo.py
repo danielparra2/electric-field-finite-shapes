@@ -213,13 +213,14 @@ def run_checks() -> None:
 
 
 # --------------------------------------------------------------------------
-# Visualization (style: "Slate Mint")
+# Visualization (style: "Neon Cyan-Magenta")
 # --------------------------------------------------------------------------
-BG = "#1b262c"
-GRID = "#3d5361"
-TEXT = "#bbe1fa"
-CHARGE = "#00ffab"
-FIELD_SCALE = [[0.0, "#2f7fb5"], [0.5, "#6fb6e6"], [1.0, "#e3f4ff"]]
+BG = "#0a0a12"
+GRID = "#2f2f47"
+TEXT = "#e6e6f0"
+CHARGE = "#fee440"
+# weak field = cyan, strong field = magenta
+FIELD_SCALE = [[0.0, "#00f5d4"], [0.5, "#9b5de5"], [1.0, "#f15bb5"]]
 
 
 def shell_points(radii, z_levels, n_phi: int = 8, axis: bool = True) -> np.ndarray:
@@ -241,7 +242,9 @@ def arrow_traces(query: np.ndarray, E: np.ndarray, length: float) -> list:
     logm = np.log10(mag)
     lo, hi = np.percentile(logm, [3, 97])
     t = np.clip((logm - lo) / (hi - lo), 0, 1)
-    tip = query + unit * (length * (0.6 + 0.4 * t))[:, None]
+    # Length and head size both grow with log|E|, so the decay with distance is visible.
+    size = 0.3 + 0.7 * t
+    tip = query + unit * (length * size)[:, None]
 
     nan = np.full(len(query), np.nan)
     xs, ys, zs = (np.column_stack([query[:, i], tip[:, i], nan]).ravel() for i in range(3))
@@ -251,19 +254,27 @@ def arrow_traces(query: np.ndarray, E: np.ndarray, length: float) -> list:
                   width=5, showscale=True,
                   colorbar=dict(title=dict(text="log10 |E|", font=dict(color=TEXT)),
                                 tickfont=dict(color=TEXT), len=0.6, thickness=14)))
-    # Plotly colours cones by the vector norm, so the norm (1 + t) carries the colour.
-    v = unit * (1.0 + t)[:, None]
+    # Plotly colours and sizes cones by the vector norm, so the norm carries both.
+    v = unit * (0.6 + 1.4 * t)[:, None]
     heads = go.Cone(
         x=tip[:, 0], y=tip[:, 1], z=tip[:, 2], u=v[:, 0], v=v[:, 1], w=v[:, 2],
         anchor="tail", sizemode="scaled", sizeref=0.35, showscale=False,
-        colorscale=FIELD_SCALE, cmin=1.0, cmax=2.0, hoverinfo="skip",
+        colorscale=FIELD_SCALE, cmin=0.6, cmax=2.0, hoverinfo="skip",
         lighting=dict(ambient=0.9, diffuse=0.3))
-    return [shaft, heads]
+    # Hover a base point to read the field value there.
+    values = go.Scatter3d(
+        x=query[:, 0], y=query[:, 1], z=query[:, 2], mode="markers", showlegend=False,
+        marker=dict(size=3, color=logm, colorscale=FIELD_SCALE, cmin=lo, cmax=hi),
+        customdata=np.column_stack([mag, E]),
+        hovertemplate=("|E| = %{customdata[0]:.3f}<br>"
+                       "E = (%{customdata[1]:.3f}, %{customdata[2]:.3f}, %{customdata[3]:.3f})<br>"
+                       "r = (%{x:.2f}, %{y:.2f}, %{z:.2f})<extra></extra>"))
+    return [shaft, heads, values]
 
 
 def build_figure(title: str, geometry: list, pts: np.ndarray, w: np.ndarray,
                  query: np.ndarray, box: float, min_dist: float = 0.2,
-                 arrow: float = 0.3) -> go.Figure:
+                 arrow: float = 0.55) -> go.Figure:
     dist, _ = cKDTree(pts).query(query)
     query = query[dist > min_dist]
     E = field(query, pts, w)
@@ -331,16 +342,16 @@ def make_all_figures() -> dict[str, go.Figure]:
     figs["wire"] = build_figure(
         "Finite wire (L = 2)",
         [_line(np.array([[0, 0, -L / 2], [0, 0, L / 2]]))], pts, w,
-        shell_points([0.5, 1.2], np.linspace(-1.5, 1.5, 7)), box=1.8)
+        shell_points([0.5, 1.2, 2.0], np.linspace(-2.1, 2.1, 7)), box=2.6)
 
     R, L = 1.0, 2.0
     pts, w = sample_cylinder(R, L)
-    q = shell_points([0.5, 1.6], np.linspace(-2.0, 2.0, 7))
+    q = shell_points([0.5, 1.6, 2.6], np.linspace(-2.7, 2.7, 7))
     # exterior points only (interior accuracy is limited, see README)
     q = q[(np.hypot(q[:, 0], q[:, 1]) > R) | (np.abs(q[:, 2]) > L / 2)]
     figs["cylinder"] = build_figure(
         "Finite solid cylinder (R = 1, L = 2)",
-        _cylinder_surface(R, L), pts, w, q, box=2.3, arrow=0.38)
+        _cylinder_surface(R, L), pts, w, q, box=3.1)
 
     R = 1.0
     pts, w = sample_ring(R)
@@ -348,27 +359,27 @@ def make_all_figures() -> dict[str, go.Figure]:
     figs["ring"] = build_figure(
         "Thin ring (R = 1)",
         [_line(np.column_stack([R * np.cos(t), R * np.sin(t), np.zeros_like(t)]))], pts, w,
-        shell_points([0.45, 1.6], np.linspace(-1.5, 1.5, 7)), box=2.0)
+        shell_points([0.45, 1.6, 2.5], np.linspace(-2.1, 2.1, 7)), box=2.9)
 
     pts, w = sample_disk(R)
     figs["disk"] = build_figure(
         "Uniform disk (R = 1)",
         [_disk_surface(R, 0.0)], pts, w,
-        shell_points([0.5, 1.6], np.linspace(-1.5, 1.5, 7)), box=2.0)
+        shell_points([0.5, 1.6, 2.5], np.linspace(-2.1, 2.1, 7)), box=2.9)
 
     a = 2.0
     pts, w = sample_plate(a)
     figs["plate"] = build_figure(
         "Finite square plate (a = 2)",
         [_plate_surface(a)], pts, w,
-        shell_points([0.5, 1.7], np.linspace(-1.5, 1.5, 7)), box=2.1)
+        shell_points([0.5, 1.7, 2.6], np.linspace(-2.1, 2.1, 7)), box=3.0)
 
     pts, w = sample_sphere(R)
-    q = shell_points([0.6, 1.7], np.linspace(-2.0, 2.0, 7))
+    q = shell_points([0.6, 1.7, 2.7], np.linspace(-2.7, 2.7, 7))
     q = q[np.linalg.norm(q, axis=1) > R]       # exterior points only
     figs["sphere"] = build_figure(
         "Uniform solid sphere (R = 1)",
-        [_sphere_surface(R)], pts, w, q, box=2.3, arrow=0.38)
+        [_sphere_surface(R)], pts, w, q, box=3.1)
 
     return figs
 
